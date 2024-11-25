@@ -14,15 +14,56 @@ import json
 import math
 import time
 import warnings
+from collections import Counter
 from sklearn.cluster import MiniBatchKMeans
 from tqdm import tqdm
 
 from dataset.utils import load_dataset, gen_label_list
 
+def analyze_onehot_distribution(dataset):
+    """
+    Analyze the frequency of one-hot vectors from a DataLoader and find the 
+    number of unique vectors that account for 90% of the total occurrences.
+    
+    Args:
+        dataloader: PyTorch DataLoader that yields (image, onehot, caption)
+    
+    Returns:
+        num_vectors_90_percent (int): Number of unique one-hot vectors accounting for 90% of total occurrences.
+        top_vectors (list): The one-hot vectors themselves, sorted by frequency.
+    """
+    print("Starting one-hot vector analysis...")
+    
+    # Step 1: Count occurrences of each one-hot vector directly
+    vector_counts = Counter()
+    total_vectors = 0
+    for onehot in tqdm(dataset.label):
+        vector_counts.update([onehot])
+        total_vectors += 1
+    
+    print(f"Total one-hot vectors: {total_vectors}")
+    print(f"Unique one-hot vectors: {len(vector_counts)}")
+    
+    # Step 2: Sort vectors by frequency (descending order)
+    sorted_counts = sorted(vector_counts.items(), key=lambda x: x[1], reverse=True)
+    
+    # Step 3: Calculate cumulative percentage and find the cutoff for 90%
+    cumulative_sum = 0
+    most_common_vectors = []
+    for vector, count in sorted_counts:
+        cumulative_sum += count
+        most_common_vectors.append(vector)
+        if cumulative_sum / total_vectors >= 0.9:
+            break
+
+    print(f"Vectors accounting for 90%: {len(most_common_vectors)}")
+    
+    # Return the number of vectors and the actual vectors
+    return len(most_common_vectors), most_common_vectors
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--batch_size', default=16, type=int,
+    parser.add_argument('--batch_size', default=128, type=int,
                         help='batch size')
     parser.add_argument('--dataset', default='coco', type=str,
                         help='data prepare to distillate')
@@ -121,21 +162,23 @@ def main():
     label_list = gen_label_list(args) # TODO: modify the path in args
 
     # 2.obtain training data
-    trainloader = load_dataset(args)
+    _, dataset = load_dataset(args)
+    num_vectors_90_percent, top_vectors = analyze_onehot_distribution(dataset)
 
-    # 3.define the diffusers pipeline
-    pipe = StableDiffusionGenLatentsPipeline.from_pretrained(
-        "stable-diffusion-v1-5/stable-diffusion-v1-5", local_files_only=True, torch_dtype=torch.float16
-    )
-    pipe = pipe.to(args.device)
 
-    # 4.initialize & run partial k-means model each class
-    km_models = initialize_km_models(label_list, args)
-    fitted_km = prototype_kmeans(pipe=pipe, data_loader=trainloader, label_list=label_list, km_models=km_models, args=args)
+    # # 3.define the diffusers pipeline
+    # pipe = StableDiffusionGenLatentsPipeline.from_pretrained(
+    #     "stable-diffusion-v1-5/stable-diffusion-v1-5", local_files_only=True, torch_dtype=torch.float16
+    # )
+    # pipe = pipe.to(args.device)
 
-    # 5.generate prototypes and save them as json file
-    prototype = gen_prototype(label_list, fitted_km)
-    save_prototype(prototype, args)
+    # # 4.initialize & run partial k-means model each class
+    # km_models = initialize_km_models(label_list, args)
+    # fitted_km = prototype_kmeans(pipe=pipe, data_loader=trainloader, label_list=label_list, km_models=km_models, args=args)
+
+    # # 5.generate prototypes and save them as json file
+    # prototype = gen_prototype(label_list, fitted_km)
+    # save_prototype(prototype, args)
 
 
 if __name__ == "__main__" :

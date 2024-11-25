@@ -18,7 +18,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--batch_size', default=10, type=int, 
                         help='batch size')
-    parser.add_argument('--dataset', default='cifar10', type=str, 
+    parser.add_argument('--dataset', default='coco', type=str, 
                         help='data prepare to distillate')
     parser.add_argument('--guidance_scale', '-g', default=8, type=float, 
                         help='diffusers guidance_scale')
@@ -26,11 +26,11 @@ def parse_args():
                         help='image per class')
     parser.add_argument('--km_expand', default=1, type=int, 
                         help='expand ration for minibatch k-means model')
-    parser.add_argument('--label_file_path', default='/home/xun_ying/DD/data/cifar10/cifar10.csv', type=str, 
+    parser.add_argument('--label_file_path', default='/home/xun_ying/DD/data/coco/coco.csv', type=str, 
                         help='root dir')
-    parser.add_argument('--prototype_path', default='/home/xun_ying/DD/data/cifar10/prototypes/cifar10-ipc10-kmexpand1-Fri-Nov-22-21-45-28-2024.json', type=str, 
+    parser.add_argument('--prototype_path', default='/home/xun_ying/DD/data/coco/prototypes/coco-ipc10-kmexpand1-Sat-Nov-23-22-41-06-2024.json', type=str, 
                         help='prototype path')
-    parser.add_argument('--save_init_image_path', default=os.path.join('/home/xun_ying/DD/data/cifar10/results/', timestr), type=str, 
+    parser.add_argument('--save_init_image_path', default=os.path.join('/home/xun_ying/DD/data/coco/results/', timestr), type=str, 
                         help='where to save the generated prototype json files')
     parser.add_argument('--strength', '-s', default=0.7, type=float, 
                         help='diffusers strength')
