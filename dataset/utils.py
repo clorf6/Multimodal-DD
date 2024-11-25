@@ -29,7 +29,7 @@ def load_dataset(args, min_scale=0.5):
     
     loader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=args.num_workers,
                             pin_memory=True, shuffle=args.shuffle, drop_last=args.drop_last)        
-    return loader
+    return loader, train_dataset
 
 
 def gen_label_list(args):
