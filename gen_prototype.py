@@ -13,6 +13,7 @@ import argparse
 import json
 import time
 import warnings
+from collections import Counter
 from sklearn.cluster import MiniBatchKMeans
 from tqdm import tqdm
 
@@ -21,7 +22,7 @@ from dataset.utils import load_dataset, save_label_names
 def parse_args():
     timestr = time.ctime().replace(f' ', f'-').replace(f':', f'-')
     parser = argparse.ArgumentParser()
-    parser.add_argument('--batch_size', default=16, type=int,
+    parser.add_argument('--batch_size', default=128, type=int,
                         help='batch size')
     parser.add_argument('--dataset', default='coco', type=str,
                         help='data prepare to distillate')

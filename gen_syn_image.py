@@ -11,8 +11,6 @@ import time
 from tqdm import tqdm
 
 
-
-
 def parse_args():
     timestr = time.ctime().replace(f' ', f'-').replace(f':', f'-')
     parser = argparse.ArgumentParser()
@@ -55,7 +53,6 @@ def gen_syn_images(pipe, prototypes, label_names, args):
         for j in range(int(args.ipc/(pros.size(0)))):
             for i in range(pros.size(0)):
                 sub_pro = pros[i:i+1]
-                sub_pro_random = torch.randn((1, 4, 64, 64), device='cuda',dtype=torch.half)
                 negative_prompt = 'cartoon, anime, painting'
                 images = pipe(prompt=label_names[label], latents=sub_pro, negative_prompt=negative_prompt, is_init=True, strength=args.strength, guidance_scale=args.guidance_scale).images
                 save_path = os.path.join(args.save_init_image_path, "{}_ipc{}_{}_s{}_g{}_kmexpand{}".format(args.dataset, int(pros.size(0)), args.ipc, args.strength, args.guidance_scale, args.km_expand))
