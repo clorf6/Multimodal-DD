@@ -24,11 +24,11 @@ unique_encoding_counts = Counter(one_hot_encoded)
 print(f"不重复的独特编码总数: {len(unique_encoding_counts)}")
 sum = 0
 tot = 0
-for encoding, count in unique_encoding_counts.most_common(5): 
+for encoding, count in unique_encoding_counts.most_common(500): 
     if count < 10:
         break
     sum += count
     tot += 1
     print(f"编码: {encoding}, 出现次数: {count}")
     
-print(f"前5000个最常见的编码总数: {sum}, {tot}, {sum/total_samples*100:.2f}%")
+print(f"前1000个最常见的编码总数: {sum}, {tot}, {sum/total_samples*100:.2f}%")
