@@ -319,6 +319,7 @@ class StableDiffusionGenLatentsPipeline(
             lora_scale (`float`, *optional*):
                 A lora scale that will be applied to all LoRA layers of the text encoder if LoRA layers are loaded.
         """
+        device = self._execution_device
         # set lora scale so that monkey patched LoRA
         # function of text encoder can correctly access it
         if lora_scale is not None and isinstance(self, LoraLoaderMixin):
@@ -669,6 +670,7 @@ class StableDiffusionGenLatentsPipeline(
         callback: Optional[Callable[[int, int, torch.FloatTensor], None]] = None,
         callback_steps: int = 1,
         cross_attention_kwargs: Optional[Dict[str, Any]] = None,
+        type = "image"
     ):
         r"""
         The call function to the pipeline for generation.
@@ -735,112 +737,47 @@ class StableDiffusionGenLatentsPipeline(
                 second element is a list of `bool`s indicating whether the corresponding generated image contains
                 "not-safe-for-work" (nsfw) content.
         """
-        # 1. Check inputs. Raise error if not correct
-        self.check_inputs(prompt, strength, callback_steps, negative_prompt, prompt_embeds, negative_prompt_embeds)
-
-        # 2. Define call parameters
-        if prompt is not None and isinstance(prompt, str):
-            batch_size = 1
-        elif prompt is not None and isinstance(prompt, list):
-            batch_size = len(prompt)
-        else:
-            batch_size = prompt_embeds.shape[0]
         device = self._execution_device
-        # here `guidance_scale` is defined analog to the guidance weight `w` of equation (2)
-        # of the Imagen paper: https://arxiv.org/pdf/2205.11487.pdf . `guidance_scale = 1`
-        # corresponds to doing no classifier free guidance.
-        do_classifier_free_guidance = guidance_scale > 1.0
+        if type == "image":
+            if image.shape.__len__() == 3:
+                batch_size = 1
+            else:
+                batch_size = image.shape[0]
+            image = self.image_processor.preprocess(image)
+            self.scheduler.set_timesteps(num_inference_steps, device=device)
+            timesteps, num_inference_steps = self.get_timesteps(num_inference_steps, strength, device)
+            latent_timestep = timesteps[:1].repeat(batch_size * num_images_per_prompt)
+            init_latents = self.prepare_init_latents(
+                image, latent_timestep, batch_size, num_images_per_prompt, torch.float16, device, generator
+            )
+            return init_latents
+        else: # type == "text"
+            if prompt is not None and isinstance(prompt, str):
+                batch_size = 1
+            elif prompt is not None and isinstance(prompt, list):
+                batch_size = len(prompt)
+            else:
+                batch_size = prompt_embeds.shape[0]
+            
+            self.check_inputs(prompt, strength, callback_steps, negative_prompt, prompt_embeds, negative_prompt_embeds)
 
-        # 3. Encode input prompt
-        text_encoder_lora_scale = (
-            cross_attention_kwargs.get("scale", None) if cross_attention_kwargs is not None else None
-        )
-        prompt_embeds, negative_prompt_embeds = self.encode_prompt(
-            prompt,
-            device,
-            num_images_per_prompt,
-            do_classifier_free_guidance,
-            negative_prompt,
-            prompt_embeds=prompt_embeds,
-            negative_prompt_embeds=negative_prompt_embeds,
-            lora_scale=text_encoder_lora_scale,
-        )
-        # For classifier free guidance, we need to do two forward passes.
-        # Here we concatenate the unconditional and text embeddings into a single batch
-        # to avoid doing two forward passes
-        if do_classifier_free_guidance:
-            prompt_embeds = torch.cat([negative_prompt_embeds, prompt_embeds])
+            do_classifier_free_guidance = guidance_scale > 1.0
 
-        # 4. Preprocess image
-        image = self.image_processor.preprocess(image)
+            text_encoder_lora_scale = (
+                cross_attention_kwargs.get("scale", None) if cross_attention_kwargs is not None else None
+            )
+            prompt_embeds, negative_prompt_embeds = self.encode_prompt(
+                prompt,
+                device,
+                num_images_per_prompt,
+                do_classifier_free_guidance,
+                negative_prompt,
+                prompt_embeds=prompt_embeds,
+                negative_prompt_embeds=negative_prompt_embeds,
+                lora_scale=text_encoder_lora_scale,
+            )
 
-        # 5. set timesteps
-        self.scheduler.set_timesteps(num_inference_steps, device=device)
-        timesteps, num_inference_steps = self.get_timesteps(num_inference_steps, strength, device)
-        latent_timestep = timesteps[:1].repeat(batch_size * num_images_per_prompt)
+            if do_classifier_free_guidance:
+                prompt_embeds = torch.stack([negative_prompt_embeds, prompt_embeds], dim=1)
 
-        # 6. Prepare latent variables
-        init_latents = self.prepare_init_latents(
-            image, latent_timestep, batch_size, num_images_per_prompt, prompt_embeds.dtype, device, generator
-        )
-        latents = self.prepare_latents(
-            init_latents, latent_timestep, prompt_embeds.dtype, device, generator
-        )
-
-        # 7. Prepare extra step kwargs. TODO: Logic should ideally just be moved out of the pipeline
-        # extra_step_kwargs = self.prepare_extra_step_kwargs(generator, eta)
-
-        # 8. Denoising loop
-        # num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
-        # with self.progress_bar(total=num_inference_steps) as progress_bar:
-        #     for i, t in enumerate(timesteps):
-        #         # expand the latents if we are doing classifier free guidance
-        #         latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
-        #         latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
-
-        #         # predict the noise residual
-        #         noise_pred = self.unet(
-        #             latent_model_input,
-        #             t,
-        #             encoder_hidden_states=prompt_embeds,
-        #             cross_attention_kwargs=cross_attention_kwargs,
-        #             return_dict=False,
-        #         )[0]
-
-        #         # perform guidance
-        #         if do_classifier_free_guidance:
-        #             noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-        #             noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
-
-        #         # compute the previous noisy sample x_t -> x_t-1
-        #         latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs, return_dict=False)[0]
-
-        #         # call the callback, if provided
-        #         if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
-        #             progress_bar.update()
-        #             if callback is not None and i % callback_steps == 0:
-        #                 callback(i, t, latents)
-
-        # if not output_type == "latent":
-        #     image = self.vae.decode(latents / self.vae.config.scaling_factor, return_dict=False)[0]
-        #     image, has_nsfw_concept = self.run_safety_checker(image, device, prompt_embeds.dtype)
-        # else:
-        #     image = latents
-        #     has_nsfw_concept = None
-
-        # if has_nsfw_concept is None:
-        #     do_denormalize = [True] * image.shape[0]
-        # else:
-        #     do_denormalize = [not has_nsfw for has_nsfw in has_nsfw_concept]
-
-        # image = self.image_processor.postprocess(image, output_type=output_type, do_denormalize=do_denormalize)
-
-        # # Offload last model to CPU
-        # if hasattr(self, "final_offload_hook") and self.final_offload_hook is not None:
-        #     self.final_offload_hook.offload()
-
-        # if not return_dict:
-        #     return (image, has_nsfw_concept)
-
-        # return StableDiffusionPipelineOutput(images=image, nsfw_content_detected=has_nsfw_concept)
-        return init_latents, latents
+            return prompt_embeds
