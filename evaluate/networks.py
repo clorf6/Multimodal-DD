@@ -760,7 +760,8 @@ class CLIPModel_full(nn.Module):
         self.image_encoder =  ImageEncoder(args, eval_stage=eval_stage)
         self.text_encoder = TextEncoder(args)
 
-        if args.only_has_image_projection:
+        self.has_image_projection = args.has_image_projection
+        if self.has_image_projection:
             self.image_projection = ProjectionHead(embedding_dim=self.image_embedding)
         self.text_projection = ProjectionHead(embedding_dim=self.text_embedding, projection_dim=self.image_embedding).to('cuda')
         self.temperature = temperature
@@ -768,14 +769,14 @@ class CLIPModel_full(nn.Module):
         self.args = args
         self.distill = args.distill
 
-    def forward(self, image, caption, epoch):
+    def forward(self, image, caption):
         self.image_encoder = self.image_encoder.to('cuda')
         self.text_encoder = self.text_encoder.to('cuda')
         
         image_features = self.image_encoder(image)
         text_features = caption if self.distill else self.text_encoder(caption) 
 
-        use_image_project = False
+        use_image_project = self.has_image_projection
         im_embed = image_features.float() if not use_image_project else self.image_projection(image_features.float())
         txt_embed = self.text_projection(text_features.float())
 

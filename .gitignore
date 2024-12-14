@@ -18,3 +18,5 @@ compile_commands.*
 data/
 test.py
 __pycache__/
+results
+dataset/__pycache__

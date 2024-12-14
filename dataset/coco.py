@@ -1,66 +1,89 @@
 import json
 import os
-import torch
-import numpy as np
 from PIL import Image
 from torch.utils.data import Dataset
-from sklearn.cluster import MiniBatchKMeans
-from collections import Counter
-from tqdm import tqdm
+import re
+
+def pre_caption(caption,max_words=30):
+    caption = re.sub(
+        r"([.!\"()*#:;~])",       
+        ' ',
+        caption.lower(),
+    )
+    caption = re.sub(
+        r"\s{2,}",
+        ' ',
+        caption,
+    )
+    caption = caption.rstrip('\n') 
+    caption = caption.strip(' ')
+
+    caption_words = caption.split(' ')
+    if len(caption_words)>max_words:
+        caption = ' '.join(caption_words[:max_words])
+            
+    return caption
 
 class coco_train(Dataset):
-    def __init__(self, transform, image_root, ann_root, num_label_clusters, max_words=30, prompt=''):
-        '''
-        image_root (string): Root directory of images (e.g. coco/images/)
-        ann_root (string): directory to store the annotation file
-        '''
-
-        self.caption = json.load(open(os.path.join(ann_root, 'train_data.json'), 'r'))
+    def __init__(self, transform, dataset_root, max_words=30, prompt=''):
+        self.data = json.load(open(os.path.join(dataset_root, 'coco_karpathy_train.json'), 'r'))
         self.transform = transform
-        self.image_root = image_root
+        self.image_root = dataset_root
         self.max_words = max_words
         self.prompt = prompt
-        
-        self.model = MiniBatchKMeans(n_clusters=num_label_clusters, random_state=0, 
-                                     batch_size=(num_label_clusters * 10), n_init="auto")
-        tmp = []
-        for onehot in tqdm(self.onehots, total=len(self.caption['annotations'])):
-            tmp.append(onehot)
-            if len(tmp) == num_label_clusters * 10:
-                self.model.partial_fit(np.vstack(tmp))
-                tmp = []
-        self.model.partial_fit(np.vstack(tmp))
-        
-        self.center = self.model.cluster_centers_
-        
-    def to_onehot(self, label):
-        onehot = np.zeros(90, dtype=bool)
-        onehot[label - 1] = True
-        return onehot
 
     def __len__(self):
-        return len(self.caption['annotations'])
+        return len(self.data)
 
     def __getitem__(self, index):
-        image_id = int(self.caption['annotations'][index]['image_id'])
-        image_path = os.path.join(self.image_root, f"COCO_train2014_{image_id:0>12}.jpg")
+        image_path = os.path.join(self.image_root, self.data[index]['image'])
         image = Image.open(image_path).convert('RGB')
         image = self.transform(image)
-        onehot = self.to_onehot(np.array(self.caption['annotations'][index]['label'], dtype=int))
-        label = self.model.predict(onehot.reshape(1, -1))[0]
-        caption = self.caption['annotations'][index]["captions"]
-        if len(caption) < 5:
-            caption += [] * (5 - len(caption))
+        captions = self.data[index]['captions']
+        for caption in captions:
+            caption = self.prompt + pre_caption(caption, self.max_words)
+        if len(captions) < 5:
+            captions += [] * (5 - len(captions))
         else:
-            caption = caption[:5]
-        assert len(caption) == 5
-        return image, label, caption
-
-    @property
-    def onehots(self):
-        index = 0
-        while index < len(self.caption['annotations']):
-            yield self.to_onehot(np.array(self.caption['annotations'][index]['label'], dtype=int))
-            index += 1
+            captions = captions[:5]
+        assert len(captions) == 5
+        return image, captions
             
     
+class coco_eval(Dataset):
+    def __init__(self, transform, dataset_root, split, max_words=30):  
+        '''
+        image_root (string): Root directory of images (e.g. coco/images/)
+        split (string): val or test
+        '''
+        filenames = {'val':'coco_karpathy_val.json','test':'coco_karpathy_test.json'}
+        
+        self.annotation = json.load(open(os.path.join(dataset_root, filenames[split]),'r'))
+        self.transform = transform
+        self.image_root = dataset_root
+        
+        self.text = []
+        self.image = []
+        self.txt2img = {}
+        self.img2txt = {}
+        
+        txt_id = 0
+        for img_id, ann in enumerate(self.annotation):
+            self.image.append(ann['image'])
+            self.img2txt[img_id] = []
+            for _, caption in enumerate(ann['caption']):
+                self.text.append(pre_caption(caption, max_words))
+                self.img2txt[img_id].append(txt_id)
+                self.txt2img[txt_id] = img_id
+                txt_id += 1
+                                    
+    def __len__(self):
+        return len(self.annotation)
+    
+    def __getitem__(self, index):    
+        
+        image_path = os.path.join(self.image_root, self.annotation[index]['image'])        
+        image = Image.open(image_path).convert('RGB')    
+        image = self.transform(image)  
+
+        return image, index
