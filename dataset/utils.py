@@ -6,7 +6,7 @@ import torchvision.datasets as datasets
 from torchvision import transforms
 from torchvision.transforms.functional import InterpolationMode
 from torch.utils.data import DataLoader
-from .coco import coco_train, coco_eval
+from .coco import coco_train, coco_eval, coco_val
 from .sync import sync_set
 from .augment import RandomAugment
 
@@ -34,7 +34,7 @@ def load_trainloader(args):
         train_dataset = coco_train(transform_train, args.dataset_root)
         train_loader = DataLoader(train_dataset, batch_size=args.train_batch_size, num_workers=args.num_workers,
                         collate_fn=collate_fn_train, pin_memory=True, shuffle=args.shuffle, drop_last=args.drop_last)        
-    if args.dataset == 'sync':
+    elif args.dataset == 'sync':
         normalize = transforms.Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711))
         transform_test = transforms.Compose([
             transforms.ToTensor(),
@@ -43,15 +43,30 @@ def load_trainloader(args):
         train_dataset = sync_set(transform_test, args.dataset_root)
         train_loader = DataLoader(train_dataset, batch_size=args.train_batch_size, num_workers=args.num_workers,
                         collate_fn=collate_fn_syn, pin_memory=True, shuffle=args.shuffle, drop_last=args.drop_last)        
+    elif args.dataset == 'coco_val':
+        normalize = transforms.Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711))
+        transform_train = transforms.Compose([           
+            transforms.Resize((args.image_size, args.image_size)),          
+            transforms.RandomHorizontalFlip(),
+            RandomAugment(2,5,isPIL=True,augs=['Identity','AutoContrast','Brightness','Sharpness','Equalize',
+                                              'ShearX', 'ShearY', 'TranslateX', 'TranslateY', 'Rotate']),     
+            transforms.ToTensor(),
+            normalize,
+        ]) 
+        train_dataset = coco_val(transform_train, args.dataset_root)
+        train_loader = DataLoader(train_dataset, batch_size=args.train_batch_size, num_workers=args.num_workers,
+                        collate_fn=collate_fn_syn, pin_memory=True, shuffle=args.shuffle, drop_last=args.drop_last)        
+    else:
+        raise RuntimeError
     return train_loader
 
 def load_testloader(args):  
     if args.dataset == 'coco':
-        normalize = transforms.Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711))
+        # normalize = transforms.Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711))
         transform_test = transforms.Compose([
             transforms.Resize((args.image_size, args.image_size), interpolation=InterpolationMode.BICUBIC),
             transforms.ToTensor(),
-            normalize,
+            # normalize,
         ])  
         test_dataset = coco_eval(transform_test, args.dataset_root, 'test')
         test_loader = DataLoader(test_dataset, batch_size=args.test_batch_size, num_workers=args.num_workers, shuffle=False)        
