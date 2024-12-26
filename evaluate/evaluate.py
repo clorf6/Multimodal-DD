@@ -4,7 +4,7 @@ import argparse
 import time
 import sys
 import os
-
+os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
 from tqdm import tqdm
 
 
@@ -14,7 +14,7 @@ current_file_path = os.path.abspath(__file__)
 current_dir = os.path.dirname(current_file_path)
 parent_dir = os.path.dirname(current_dir)
 sys.path.insert(0, parent_dir)
-from dataset.utils import load_trainloader, load_testloader
+from dataset.utils import load_train_loader, load_test_loader
 
 @torch.no_grad()
 def itm_eval(scores_i2t, scores_t2i, txt2img, img2txt):
@@ -65,23 +65,90 @@ def itm_eval(scores_i2t, scores_t2i, txt2img, img2txt):
                     'r_mean': r_mean}
     return eval_result
 
+@torch.no_grad()
+def evaluate(args_eval, eval_model):
+    testloader = load_test_loader(args_eval)
+    texts = testloader.dataset.text 
+    
+    if args_eval.dataset in ['flickr', 'coco']:
+        if args_eval.dataset == 'flickr':
+            bert_test_embed = eval_model.text_encoder(texts)
+        elif args_eval.dataset == 'coco':
+            num = 20
+            part_length = len(texts) // num
+            remainder = len(texts) % num
+            parts = []
+            start = 0
+            for i in range(num):
+                end = start + part_length + (1 if remainder > 0 else 0)
+                parts.append(texts[start: end])
+                start = end
+                remainder -= 1
+            encoded_chunks = []
+            for chunk in parts:
+                encoded_chunk = eval_model.text_encoder(chunk)
+                encoded_chunks.append(encoded_chunk)
+            bert_test_embed = torch.cat(encoded_chunks, dim=0)
+    else:
+        raise NotImplementedError
+    
+    logit_scale = torch.nn.Parameter(torch.ones([]) * np.log(1 / 0.07))
+    print('Computing features for evaluation...')
+    txt_embed = eval_model.text_projection(bert_test_embed.float().to(args_eval.device)) 
+    text_embeds = txt_embed / txt_embed.norm(dim=1, keepdim=True) 
+    text_embeds = text_embeds.to(args_eval.device)
+    image_embeds = []
+    for image in tqdm(testloader): 
+        image_feat = eval_model.image_encoder(image.to(args_eval.device))
+        im_embed = image_feat / image_feat.norm(dim=1, keepdim=True)
+        image_embeds.append(im_embed)
+    image_embeds = torch.cat(image_embeds,dim=0)
+    use_image_projection = False
+    if use_image_projection:
+        im_embed = eval_model.image_projection(image_embeds.float())
+        image_embeds = im_embed / im_embed.norm(dim=1, keepdim=True)
+    else:
+        image_embeds = image_embeds / image_embeds.norm(dim=1, keepdim=True)
+        
+    sims_matrix = logit_scale.exp() * image_embeds @ text_embeds.t()
+    score_matrix_i2t = torch.full((len(image_embeds),len(text_embeds)),-100.0).to(args_eval.device) #torch.Size([1000, 5000])
+    #for i, sims in enumerate(metric_logger.log_every(sims_matrix[0:sims_matrix.size(0) + 1], 50, header)): 
+    for i, sims in enumerate(sims_matrix[0:sims_matrix.size(0) + 1]): 
+        topk_sim, topk_idx = sims.topk(k=128, dim=0)
+        score_matrix_i2t[i,topk_idx] = topk_sim #i:0-999, topk_idx:0-4999, find top k (k=128) similar text for each image
+    
+    sims_matrix = sims_matrix.t()
+    score_matrix_t2i = torch.full((len(text_embeds),len(image_embeds)),-100.0).to(args_eval.device)
+    for i,sims in enumerate(sims_matrix[0:sims_matrix.size(0) + 1]): 
+        topk_sim, topk_idx = sims.topk(k=128, dim=0)
+        score_matrix_t2i[i,topk_idx] = topk_sim
+
+    val_result = itm_eval(score_matrix_i2t.detach().cpu().numpy(), score_matrix_t2i.detach().cpu().numpy(), 
+                        testloader.dataset.txt2img, testloader.dataset.img2txt) 
+    print("Img R@1: {}\tR@5: {}\tR@10: {}\tR@Mean: {}\tTxt R@1: {}\tR@5: {}\tR@10: {}\tR@Mean: {}".format(
+            val_result['img_r1'], val_result['img_r5'], val_result['img_r10'], val_result['img_r_mean'], 
+            val_result['txt_r1'], val_result['txt_r5'], val_result['txt_r10'], val_result['txt_r_mean']))  
 
 
-def evaluate():
+def train_and_evaluate():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--epochs', default=50, type=int,
+    parser.add_argument('--root', default='/mnt/nas-new/home/yangnianzu/jsl/Multimodal-DD', type=str, 
+                        help='root path')
+    parser.add_argument('--epochs', default=1000, type=int,
                         help='train epochs')
-    parser.add_argument('--train_batch_size', default=16, type=int,
+    parser.add_argument('--train_batch_size', default=32, type=int,
                         help='train batch size')
-    parser.add_argument('--lr', default=0.01, type=float,
+    parser.add_argument('--image_lr', default=0.0005, type=float,
                         help='learning rate')
-    parser.add_argument('--dataset', default='sync', type=str,
+    parser.add_argument('--text_lr', default=0.0005, type=float,
+                        help='learning rate')
+    parser.add_argument('--dataset', default='coco_sync', type=str,
                         help='data prepare to train for eval model')
     parser.add_argument('--image_size', default=224, type=int,
                         help='image size')
-    parser.add_argument('--dataset_root', default='/home/xun_ying/DD/results/coco/Fri-Dec-13-13-43-06-2024', type=str,
-                        help='dataset dir')
-    parser.add_argument('--num_workers', default=0, type=int,
+    parser.add_argument('--time_str', default='Tue-Dec-17-18-00-22-2024', type=str,
+                        help='time str')
+    parser.add_argument('--num_workers', default=16, type=int,
                         help='number of workers')
     parser.add_argument('--shuffle', default=True, type=bool,
                         help='shuffle the data')
@@ -104,35 +171,46 @@ def evaluate():
     parser.add_argument('--text_trainable', type=bool, default=False, 
                         help='text_trainable')
     parser.add_argument('--has_image_projection', type=bool, default=False, help='None')
-    args_train_eval_model = parser.parse_args()
+    parser.add_argument('--eval_epoch', type=int, default=10, help='None')
+    parser.add_argument("--is_resize", default=True, type=bool,
+                        help="resize image")
+    parser.add_argument("--is_augment", default=False, type=bool,
+                        help="use data augmentation")
+    parser.add_argument("--is_normalize", default=False, type=bool,
+                        help="use data augmentation")
+    args_train = parser.parse_args()
+    dataset = args_train.dataset.split('_')[0]
+    args_train.dataset = args_train.dataset.split('_')[1]
+    args_train.dataset_root = f"{args_train.root}/results/{dataset}/{args_train.time_str}"
     
     parser = argparse.ArgumentParser()
-    parser.add_argument('--test_batch_size', default=1, type=int,
+    parser.add_argument('--root', default='/mnt/nas-new/home/yangnianzu/jsl/Multimodal-DD', type=str, 
+                        help='root path')
+    parser.add_argument('--test_batch_size', default=128, type=int,
                         help='test batch size')
     parser.add_argument('--dataset', default='coco', type=str,
                         help='data prepare to test')
     parser.add_argument('--image_size', default=224, type=int,
                         help='image size')
-    parser.add_argument('--dataset_root', default='/home/xun_ying/DD/data/coco', type=str,
-                        help='image root dir')
-    parser.add_argument('--num_workers', default=0, type=int,
+    parser.add_argument('--num_workers', default=32, type=int,
                         help='number of workers')
     parser.add_argument('--device', default='cuda', type=str,
                         help='device')
     args_eval = parser.parse_args()
+    args_eval.dataset_root = f"{args_eval.root}/data/{args_eval.dataset}"
     
-    eval_model = CLIPModel_full(args_train_eval_model)
-    eval_model = eval_model.to(args_train_eval_model.device)
+    eval_model = CLIPModel_full(args_train)
+    eval_model = eval_model.to(args_train.device)
     eval_model.train()
     
-    optimizer_img = torch.optim.SGD(eval_model.image_encoder.parameters(), lr=args_train_eval_model.lr, momentum=0.9, weight_decay=0.0005)
-    optimizer_txt = torch.optim.SGD(eval_model.text_projection.parameters(), lr=args_train_eval_model.lr, momentum=0.9, weight_decay=0.0005)
-    trainloader = load_trainloader(args_train_eval_model)
+    optimizer_img = torch.optim.AdamW(eval_model.image_encoder.parameters(), lr=args_train.image_lr, weight_decay=0.0005)
+    optimizer_txt = torch.optim.AdamW(eval_model.text_projection.parameters(), lr=args_train.text_lr, weight_decay=0.0005)
+    trainloader = load_train_loader(args_train)
     
-    for epoch in range(args_train_eval_model.epochs):
+    for epoch in range(args_train.epochs):
         loss_avg, acc_avg, num_exp = 0, 0, 0
-        for i, data in enumerate(tqdm(trainloader)):
-            image = data[0].to(args_train_eval_model.device)
+        for data in tqdm(trainloader):
+            image = data[0].to(args_train.device)
             caption = data[1]
             n_b = image.shape[0]
             loss, acc = eval_model(image, caption)
@@ -146,74 +224,12 @@ def evaluate():
             optimizer_txt.step()
         print(f'Epoch{epoch}: loss_avg: {loss_avg / num_exp}, acc_avg: {acc_avg / num_exp}')  
     
-    
-    
-    eval_model.eval() 
-    
-    with torch.no_grad():
-        testloader = load_testloader(args_eval)
-        texts = testloader.dataset.text 
-        
-        
-        if args_eval.dataset in ['flickr', 'coco']:
-            if args_eval.dataset == 'flickr':
-                bert_test_embed = eval_model.text_encoder(texts)
-            elif args_eval.dataset == 'coco':
-                num = 20
-                part_length = len(texts) // num
-                remainder = len(texts) % num
-                parts = []
-                start = 0
-                for i in range(num):
-                    end = start + part_length + (1 if remainder > 0 else 0)
-                    parts.append(texts[start: end])
-                    start = end
-                    remainder -= 1
-                encoded_chunks = []
-                for chunk in parts:
-                    encoded_chunk = eval_model.text_encoder(chunk)
-                    encoded_chunks.append(encoded_chunk)
-                bert_test_embed = torch.cat(encoded_chunks, dim=0)
-        else:
-            raise NotImplementedError
-        
-        logit_scale = torch.nn.Parameter(torch.ones([]) * np.log(1 / 0.07))
-        print('Computing features for evaluation...')
-        txt_embed = eval_model.text_projection(bert_test_embed.float().to(args_eval.device)) 
-        text_embeds = txt_embed / txt_embed.norm(dim=1, keepdim=True) 
-        text_embeds = text_embeds.to(args_eval.device)
-        
-        image_embeds = []
-        for image, img_id in tqdm(testloader): 
-            image_feat = eval_model.image_encoder(image.to(args_eval.device))
-            im_embed = image_feat / image_feat.norm(dim=1, keepdim=True)
-            image_embeds.append(im_embed)
-        image_embeds = torch.cat(image_embeds,dim=0)
-        use_image_projection = False
-        if use_image_projection:
-            im_embed = eval_model.image_projection(image_embeds.float())
-            image_embeds = im_embed / im_embed.norm(dim=1, keepdim=True)
-        else:
-            image_embeds = image_embeds / image_embeds.norm(dim=1, keepdim=True)
-            
-        sims_matrix = logit_scale.exp() * image_embeds @ text_embeds.t()
-        score_matrix_i2t = torch.full((len(image_embeds),len(text_embeds)),-100.0).to(args_eval.device) #torch.Size([1000, 5000])
-        #for i, sims in enumerate(metric_logger.log_every(sims_matrix[0:sims_matrix.size(0) + 1], 50, header)): 
-        for i, sims in enumerate(sims_matrix[0:sims_matrix.size(0) + 1]): 
-            topk_sim, topk_idx = sims.topk(k=128, dim=0)
-            score_matrix_i2t[i,topk_idx] = topk_sim #i:0-999, topk_idx:0-4999, find top k (k=128) similar text for each image
-        
-        sims_matrix = sims_matrix.t()
-        score_matrix_t2i = torch.full((len(text_embeds),len(image_embeds)),-100.0).to(args_eval.device)
-        for i,sims in enumerate(sims_matrix[0:sims_matrix.size(0) + 1]): 
-            topk_sim, topk_idx = sims.topk(k=128, dim=0)
-            score_matrix_t2i[i,topk_idx] = topk_sim
+        if epoch % args_train.eval_epoch == 0 and epoch > 0:    
+            eval_model.eval() 
+            with torch.no_grad():
+                evaluate(args_eval, eval_model)
+            eval_model.train()
 
-        val_result = itm_eval(score_matrix_i2t.detach().cpu().numpy(), score_matrix_t2i.detach().cpu().numpy(), 
-                            testloader.dataset.txt2img, testloader.dataset.img2txt) 
-        print("Img R@1: {}\tR@5: {}\tR@10: {}\tR@Mean: {}\tTxt R@1: {}\tR@5: {}\tR@10: {}\tR@Mean: {}".format(
-                val_result['img_r1'], val_result['img_r5'], val_result['img_r10'], val_result['img_r_mean'], 
-                val_result['txt_r1'], val_result['txt_r5'], val_result['txt_r10'], val_result['txt_r_mean']))  
 
 if __name__ == '__main__':
-    evaluate()
+    train_and_evaluate()

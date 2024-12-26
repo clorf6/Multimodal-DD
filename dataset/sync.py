@@ -36,7 +36,7 @@ class sync_set(Dataset):
         return len(self.annotation)
     
     def __getitem__(self, index):    
-        image_path = os.path.join(self.img_root, self.annotation[index]['image_path'][1:])        
+        image_path = os.path.join(self.img_root, self.annotation[index]['image_path'])        
         image = Image.open(image_path).convert('RGB')    
         image = self.transform(image)  
 
