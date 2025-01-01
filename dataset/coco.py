@@ -51,7 +51,7 @@ class coco_train(Dataset):
         return image, captions, index
             
     
-class coco_eval(Dataset):
+class coco_test(Dataset):
     def __init__(self, transform, dataset_root, split, max_words=30):  
         '''
         image_root (string): Root directory of images (e.g. coco/images/)

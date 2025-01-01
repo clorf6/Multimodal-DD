@@ -6,7 +6,7 @@ import torchvision.datasets as datasets
 from torchvision import transforms
 from torchvision.transforms.functional import InterpolationMode
 from torch.utils.data import DataLoader
-from .coco import coco_train, coco_eval
+from .coco import coco_train, coco_test
 from .sync import sync_set
 from .augment import RandomAugment
 from transformers import CLIPProcessor, CLIPModel
@@ -27,9 +27,9 @@ def load_train_dataset(args):
     if args.is_resize:
         transform.append(transforms.Resize((args.image_size, args.image_size)))
     if args.is_augment:
-        transform.append(transforms.RandomHorizontalFlip(),
+        transform.extend([transforms.RandomHorizontalFlip(),
             RandomAugment(2,5,isPIL=True,augs=['Identity','AutoContrast','Brightness','Sharpness','Equalize',
-                                            'ShearX', 'ShearY', 'TranslateX', 'TranslateY', 'Rotate']))
+                                            'ShearX', 'ShearY', 'TranslateX', 'TranslateY', 'Rotate'])])
     transform.append(transforms.ToTensor())
     if args.is_normalize:
         normalize = transforms.Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711))
@@ -46,10 +46,10 @@ def load_train_dataset(args):
 def load_train_loader(args):  
     train_dataset = load_train_dataset(args)
     if args.dataset == 'coco':
-        train_loader = DataLoader(train_dataset, batch_size=args.train_batch_size, num_workers=args.num_workers,
+        train_loader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=args.num_workers,
                         collate_fn=collate_fn_train, pin_memory=True, shuffle=args.shuffle, drop_last=args.drop_last)        
     elif args.dataset == 'sync':
-        train_loader = DataLoader(train_dataset, batch_size=args.train_batch_size, num_workers=args.num_workers,
+        train_loader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=args.num_workers,
                         collate_fn=collate_fn_syn, pin_memory=True, shuffle=args.shuffle, drop_last=args.drop_last)        
     else:
         raise RuntimeError
@@ -63,8 +63,8 @@ def load_test_loader(args):
             transforms.ToTensor(),
             normalize,
         ])  
-        test_dataset = coco_eval(transform_test, args.dataset_root, 'test')
-        test_loader = DataLoader(test_dataset, batch_size=args.test_batch_size, num_workers=args.num_workers, 
+        test_dataset = coco_test(transform_test, args.dataset_root, 'test')
+        test_loader = DataLoader(test_dataset, batch_size=args.batch_size, num_workers=args.num_workers, 
                                  shuffle=False, drop_last=False)        
     else:
         raise RuntimeError

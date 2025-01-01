@@ -21,15 +21,15 @@ def parse_args():
                         help='model name')
     parser.add_argument('--guidance_scale', '-g', default=8, type=float, 
                         help='diffusers guidance_scale')
-    parser.add_argument('--time_str', default='Tue-Dec-17-18-00-22-2024', type=str,
+    parser.add_argument('--time_str', default='Fri-Dec-27-14-20-01-2024', type=str,
                         help='time str')
-    parser.add_argument('--config_name', default='coco-res100', type=str,
+    parser.add_argument('--config_name', default='coco-res200', type=str,
                         help='configs name')
     parser.add_argument('--strength', '-s', default=0.7, type=float, 
                         help='diffusers strength')
     parser.add_argument("--image_size", default=224, type=int,
                         help="image size")
-    parser.add_argument("--image_num", default=5, type=int,
+    parser.add_argument("--image_num", default=4, type=int,
                         help="image number, should be a square number")
     parser.add_argument("--clip_model", default='openai/clip-vit-base-patch32', type=str, 
                         help="clip model name")
@@ -42,9 +42,8 @@ def parse_args():
     args = parser.parse_args()
     args.dataset_root = os.path.join(args.root, 'data', args.dataset)
     args.prototype_path = f"{args.root}/results/{args.dataset}/{args.time_str}/prototypes/{args.config_name}.json"
-    args.image_path = f"{args.root}/results/{args.dataset}/{args.time_str}/images-new"
-    args.save_path = f"{args.root}/results/{args.dataset}/{args.time_str}/results-new.json"
-    args.load_path = f"{args.root}/results/{args.dataset}/{args.time_str}/results.json"
+    args.image_path = f"{args.root}/results/{args.dataset}/{args.time_str}/images"
+    args.save_path = f"{args.root}/results/{args.dataset}/{args.time_str}/results-native.json"
     model = args.model.split('/')[-1]
     clip = args.clip_model.split('/')[-1]
     args.model_path = os.path.join(args.root, 'models', model)
@@ -58,10 +57,9 @@ def load_prototype(args):
     with open(prototype_file_path, 'r') as f:
         prototype = tuple(json.load(f))
     prototypes = []
-    for (image, caption, idx) in zip(prototype[0], prototype[1], prototype[2]):
+    for (image, idx) in zip(prototype[0], prototype[1]):
         image = torch.tensor(image, dtype=torch.float16).to(args.device)
-        caption = torch.tensor(caption, dtype=torch.float16).to(args.device)
-        prototypes.append((image, caption, idx))
+        prototypes.append((image, idx))
     print("prototype loaded.")
     return prototypes
 
@@ -71,14 +69,11 @@ def gen_syn_images(pipe, prototypes, dataset, args):
     device = args.device
     clip_model, clip_processor = load_clip_model(device, args)
     
-    ann = json.load(open(args.load_path, 'r'))
-    
-    for i, (image_embed, _, idx) in tqdm(enumerate(prototypes), total=len(prototypes)):
+    for i, (image_embed, idx) in tqdm(enumerate(prototypes), total=len(prototypes)):
         image_embed = image_embed.unsqueeze(0)
         
         _, native_caption, _ = dataset[idx]
-        base_caption = ann[i]['caption'][0]
-        
+        base_caption = max(native_caption, key=len)
         candidate_images = []
         candidate_scores = []
         for _ in range(args.image_num):
@@ -97,9 +92,10 @@ def gen_syn_images(pipe, prototypes, dataset, args):
         
         best_idx = int(np.argmax(candidate_scores))
         best_image = candidate_images[best_idx]
+        best_caption = base_caption
         
         best_image.save(os.path.join(args.image_path, f"{i}.png"))
-        img_txt_pair = {'id': i, 'image_path': f"{i}.png", 'caption': [base_caption]}
+        img_txt_pair = {'id': i, 'image_path': f"{i}.png", 'caption': [best_caption]}
         results.append(img_txt_pair)
     
     with open(args.save_path, 'w', encoding='utf-8') as f:

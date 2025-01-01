@@ -767,14 +767,14 @@ class CLIPModel_full(nn.Module):
         self.temperature = temperature
         #self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07))
         self.args = args
-        self.distill = args.distill
+        self.text_encoded = args.text_encoded
 
     def forward(self, image, caption):
         self.image_encoder = self.image_encoder.to('cuda')
         self.text_encoder = self.text_encoder.to('cuda')
         
         image_features = self.image_encoder(image)
-        text_features = caption if self.distill else self.text_encoder(caption) 
+        text_features = caption if self.text_encoded else self.text_encoder(caption) 
 
         use_image_project = self.has_image_projection
         im_embed = image_features.float() if not use_image_project else self.image_projection(image_features.float())

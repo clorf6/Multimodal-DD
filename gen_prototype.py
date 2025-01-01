@@ -32,13 +32,13 @@ def parse_args():
                         help='data prepare to distillate')
     parser.add_argument('--image_size', default=512, type=int,
                         help='image size')
-    parser.add_argument('--result_num', default=100, type=int,
+    parser.add_argument('--result_num', default=500, type=int,
                         help='number of results')
     parser.add_argument('--num_workers', default=32, type=int,
                         help='number of workers')
     parser.add_argument('--shuffle', default=True, type=bool,
                         help='shuffle the data')
-    parser.add_argument('--time_str', default='Tue-Dec-17-18-00-22-2024', type=str,
+    parser.add_argument('--time_str', default=None, type=str,
                         help='time str')
     parser.add_argument('--drop_last', default=True, type=bool,
                         help='drop the last batch')
@@ -77,62 +77,47 @@ def initialize_km_models(args):
 
 def prototype_kmeans(pipe, data_loader, km_model, args):
     latent_images = []
-    latent_captions = []
     latent_indices = []
     image_cache_path = os.path.join(args.cache_path, 'image_cache.pkl')
-    caption_cache_path = os.path.join(args.cache_path, 'caption_cache.pkl')
     index_cache_path = os.path.join(args.cache_path, 'index_cache.pkl')
-    if os.path.isfile(image_cache_path) and os.path.isfile(caption_cache_path) and os.path.isfile(index_cache_path):
+    if os.path.isfile(image_cache_path) and os.path.isfile(index_cache_path):
         with open(image_cache_path, 'rb') as f:
             latent_images = pickle.load(f)
-        with open(caption_cache_path, 'rb') as f:
-            latent_captions = pickle.load(f)
         with open(index_cache_path, 'rb') as f:
             latent_indices = pickle.load(f)
         print("cache loaded")
     else: 
         os.makedirs(args.cache_path, exist_ok=True)
-        for batch_images, batch_captions, batch_indices in tqdm(data_loader, total=len(data_loader), position=0):
-            batch_captions = [caption for captions in batch_captions for caption in captions]
+        for batch_images, _, batch_indices in tqdm(data_loader, total=len(data_loader), position=0):
             B = batch_images.size(0)
-            negative_prompt = ['cartoon, anime, painting'] * (5 * B)
             batch_images = batch_images.cuda(non_blocking=True)
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", category=FutureWarning)
                 image_embed = pipe(image=batch_images, strength=args.strength, type='image').view(B, -1)
-                prompt_embed = pipe(prompt=batch_captions, strength=args.strength, guidance_scale=args.guidance_scale, negative_prompt=negative_prompt, type='text')
-                prompt_embed = prompt_embed.view(B, 5, 2, -1, 768)
-                prompt_embed = prompt_embed.mean(dim=1)
             for i in range(B):
                 latent_images.append(image_embed[i].view(1, -1).cpu().numpy())
-                latent_captions.append(prompt_embed[i].cpu().numpy())
                 latent_indices.append(batch_indices[i])
         with open(image_cache_path, 'wb') as f:
             pickle.dump(latent_images, f)
-        with open(caption_cache_path, 'wb') as f:
-            pickle.dump(latent_captions, f)
         with open(index_cache_path, 'wb') as f:
             pickle.dump(latent_indices, f)
 
     km_model.fit(np.vstack(latent_images))
-    return km_model, latent_images, latent_captions, latent_indices
+    return km_model, latent_images, latent_indices
 
-def gen_prototype(km_models, latent_images, latent_captions, latent_indices):
+def gen_prototype(km_models, latent_images, latent_indices):
     prototype = {}
     model = km_models
     N = 64
     if hasattr(model, 'medoid_indices_'):
         medoids_idxs = model.medoid_indices_.tolist()
         image_centers = []
-        caption_centers = []
         index_centers = []
         for idx in medoids_idxs:
             image_center = latent_images[idx].reshape(4, N, N)
             image_centers.append(image_center.tolist())
-            caption_center = latent_captions[idx].reshape(2, -1, 768)
-            caption_centers.append(caption_center.tolist())
             index_centers.append(latent_indices[idx])
-        prototype = (image_centers, caption_centers, index_centers)
+        prototype = (image_centers, index_centers)
     else:
         print(f"Warning: model has no attribute cluster_centers_")
     return prototype
@@ -163,10 +148,10 @@ def main():
 
     # 4.initialize & run partial k-means model each class
     km_model = initialize_km_models(args)
-    fitted_km, latent_images, latent_captions, latent_indices = prototype_kmeans(pipe=pipe, data_loader=trainloader, km_model=km_model, args=args)
+    fitted_km, latent_images, latent_indices = prototype_kmeans(pipe=pipe, data_loader=trainloader, km_model=km_model, args=args)
 
     # 5.generate prototypes and save them as json file
-    prototype = gen_prototype(fitted_km, latent_images, latent_captions, latent_indices)
+    prototype = gen_prototype(fitted_km, latent_images, latent_indices)
     save_prototype(prototype, args)
 
 if __name__ == "__main__" :

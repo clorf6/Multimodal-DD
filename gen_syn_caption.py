@@ -20,7 +20,7 @@ def parse_args():
                         help='data prepare to distillate')
     parser.add_argument('--time_str', default='Tue-Dec-17-18-00-22-2024', type=str,
                         help='result time str')
-    parser.add_argument("--caption_num", default=2, type=int, 
+    parser.add_argument("--caption_num", default=5, type=int, 
                         help="caption number")
     parser.add_argument("--clip_model", default='openai/clip-vit-base-patch32', type=str, 
                         help="clip model name")
