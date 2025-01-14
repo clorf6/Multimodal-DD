@@ -1,16 +1,15 @@
-## DiffAnnot: Improved Neural Annotator with Denoising Diffusion Model
+## GITD: A Generative Method for Multimodal DatasetDistillation
 
 > Accepted by CVML 2025.
 
 Authors: [Songlin Jiang](https://github.com/clorf6),  [Guanjie Wang](https://github.com/Irfnfnkemed), [Shuo Wu](https://github.com/xunying123)
 
 - source code: [Multimodal-DD](https://github.com/clorf6/Multimodal-DD)
-
 - [Paper In PDF](GITD.pdf)
 
 ### Abstract
 
-The rapid advancement of machine learning has led to the emergence of large-scale models and massive datasets, increasing the demand for efficient data distillation techniques. This paper proposes GITD (Generative Image- Text Distillation), an innovative generative architecture for multimodal dataset distillation. GITD achieves superior text-image alignment, enhanced performance, and reduced overhead compared to traditional methods. Experimental results demonstrate significant performance improvements, with approximately 15% and 30% gains in image and text retrieval tasks, respectively. Additionally, GITD exhibits strong cross-architecture generalization, making it highly adaptable across different models.  
+The rapid advancement of machine learning has led to the emergence of large-scale models and massive datasets, increasing the demand for efficient data distillation techniques. This paper proposes GITD (Generative Image- Text Distillation), an innovative generative architecture for multimodal dataset distillation. GITD achieves superior text-image alignment, enhanced performance, and reduced overhead compared to traditional methods. Experimental results demonstrate significant performance improvements, with approximately 15% and 30% gains in image and text retrieval tasks, respectively. Additionally, GITD exhibits strong cross-architecture generalization, making it highly adaptable across different models.
 
 ### Architecture
 
@@ -28,4 +27,4 @@ To illustrate the quality of the synthetic data intuitively, We provide visualiz
 
 SJTU Course AI3604-02: Computer Vision (2024 Fall) Team D Project.
 
-This page is maintained by AI3604-02 - Group B.
+This page is maintained by AI3604-02 - Group D.
