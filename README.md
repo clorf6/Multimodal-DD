@@ -1,4 +1,4 @@
-## GITD: A Generative Method for Multimodal DatasetDistillation
+## GITD: A Generative Method for Multimodal Dataset Distillation
 
 > Accepted by CVML 2025.
 
