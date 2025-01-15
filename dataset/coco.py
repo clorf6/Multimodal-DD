@@ -1,9 +1,8 @@
 import json
+import re
 import os
 from PIL import Image
 from torch.utils.data import Dataset
-import re
-import random
 
 def pre_caption(caption,max_words=30):
     caption = re.sub(

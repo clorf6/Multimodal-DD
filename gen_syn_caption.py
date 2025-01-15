@@ -16,9 +16,9 @@ def parse_args():
                         help='root path')
     parser.add_argument('--model', default='Salesforce/blip2-opt-6.7b-coco', type=str,
                         help='model name')
-    parser.add_argument('--dataset', default='coco', type=str,
+    parser.add_argument('--dataset', default='flickr', type=str,
                         help='data prepare to distillate')
-    parser.add_argument('--time_str', default='Tue-Dec-17-18-00-22-2024', type=str,
+    parser.add_argument('--time_str', default='origin_image', type=str,
                         help='result time str')
     parser.add_argument("--caption_num", default=5, type=int, 
                         help="caption number")

@@ -1,4 +1,5 @@
 import os
+import re
 import torch
 import pandas as pd
 import torchvision.transforms as transforms
@@ -7,6 +8,7 @@ from torchvision import transforms
 from torchvision.transforms.functional import InterpolationMode
 from torch.utils.data import DataLoader
 from .coco import coco_train, coco_test
+from .flickr import flickr_train, flickr_test
 from .sync import sync_set
 from .augment import RandomAugment
 from transformers import CLIPProcessor, CLIPModel
@@ -37,6 +39,8 @@ def load_train_dataset(args):
     transform_train = transforms.Compose(transform) 
     if args.dataset == 'coco':
         train_dataset = coco_train(transform_train, args.dataset_root)
+    elif args.dataset == 'flickr':
+        train_dataset = flickr_train(transform_train, args.dataset_root)
     elif args.dataset == 'sync':
         train_dataset = sync_set(transform_train, args.dataset_root)
     else:
@@ -45,10 +49,10 @@ def load_train_dataset(args):
 
 def load_train_loader(args):  
     train_dataset = load_train_dataset(args)
-    if args.dataset == 'coco':
+    if args.dataset == 'coco' or args.dataset == 'flickr':
         train_loader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=args.num_workers,
                         collate_fn=collate_fn_train, pin_memory=True, shuffle=args.shuffle, drop_last=args.drop_last)        
-    elif args.dataset == 'sync':
+    elif args.dataset == 'sync':    
         train_loader = DataLoader(train_dataset, batch_size=args.batch_size, num_workers=args.num_workers,
                         collate_fn=collate_fn_syn, pin_memory=True, shuffle=args.shuffle, drop_last=args.drop_last)        
     else:
@@ -56,18 +60,20 @@ def load_train_loader(args):
     return train_loader
 
 def load_test_loader(args):  
+    normalize = transforms.Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711))
+    transform_test = transforms.Compose([
+        transforms.Resize((args.image_size, args.image_size)),
+        transforms.ToTensor(),
+        normalize,
+    ])  
     if args.dataset == 'coco':
-        normalize = transforms.Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711))
-        transform_test = transforms.Compose([
-            transforms.Resize((args.image_size, args.image_size)),
-            transforms.ToTensor(),
-            normalize,
-        ])  
         test_dataset = coco_test(transform_test, args.dataset_root, 'test')
-        test_loader = DataLoader(test_dataset, batch_size=args.batch_size, num_workers=args.num_workers, 
-                                 shuffle=False, drop_last=False)        
+    elif args.dataset == 'flickr':
+        test_dataset = flickr_test(transform_test, args.dataset_root, 'test') 
     else:
         raise RuntimeError
+    test_loader = DataLoader(test_dataset, batch_size=args.batch_size, num_workers=args.num_workers, 
+                             shuffle=False, drop_last=False)        
     return test_loader
 
 def load_clip_model(device, args):

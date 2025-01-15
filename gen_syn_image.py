@@ -15,15 +15,15 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--root', default='/mnt/nas-new/home/yangnianzu/jsl/Multimodal-DD', type=str, 
                         help='root path')
-    parser.add_argument('--dataset', default='coco', type=str, 
+    parser.add_argument('--dataset', default='flickr', type=str, 
                         help='data prepare to distillate')
     parser.add_argument('--model', default='stable-diffusion-v1-5/stable-diffusion-v1-5', type=str,
                         help='model name')
     parser.add_argument('--guidance_scale', '-g', default=8, type=float, 
                         help='diffusers guidance_scale')
-    parser.add_argument('--time_str', default='Fri-Dec-27-14-20-01-2024', type=str,
+    parser.add_argument('--time_str', default='origin_image', type=str,
                         help='time str')
-    parser.add_argument('--config_name', default='coco-res200', type=str,
+    parser.add_argument('--config_name', default='flickr-res100', type=str,
                         help='configs name')
     parser.add_argument('--strength', '-s', default=0.7, type=float, 
                         help='diffusers strength')

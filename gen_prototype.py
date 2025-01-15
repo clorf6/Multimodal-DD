@@ -14,6 +14,7 @@ import argparse
 import json
 import time
 import warnings
+import random
 from sklearn.cluster import KMeans
 from sklearn_extra.cluster import CLARA
 from tqdm import tqdm
@@ -24,21 +25,21 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--root', default='/mnt/nas-new/home/yangnianzu/jsl/Multimodal-DD', type=str, 
                         help='root path')
-    parser.add_argument('--train_batch_size', default=32, type=int,
+    parser.add_argument('--batch_size', default=32, type=int,
                         help='train batch size')
     parser.add_argument('--model', default='stable-diffusion-v1-5/stable-diffusion-v1-5', type=str,
                         help='model name')
-    parser.add_argument('--dataset', default='coco', type=str,
+    parser.add_argument('--dataset', default='flickr', type=str,
                         help='data prepare to distillate')
     parser.add_argument('--image_size', default=512, type=int,
                         help='image size')
-    parser.add_argument('--result_num', default=500, type=int,
+    parser.add_argument('--result_num', default=100, type=int,
                         help='number of results')
     parser.add_argument('--num_workers', default=32, type=int,
                         help='number of workers')
     parser.add_argument('--shuffle', default=True, type=bool,
                         help='shuffle the data')
-    parser.add_argument('--time_str', default=None, type=str,
+    parser.add_argument('--time_str', default="random_selection", type=str,
                         help='time str')
     parser.add_argument('--drop_last', default=True, type=bool,
                         help='drop the last batch')
@@ -65,13 +66,13 @@ def parse_args():
     model = args.model.split('/')[-1]
     args.dataset_root = os.path.join(args.root, 'data', args.dataset)
     args.save_path = os.path.join(args.root, 'results', args.dataset, timestr)
-    args.cache_path = os.path.join(args.root, 'cache', f"{model}-strength{args.strength}-guidance{args.guidance_scale}")
+    args.cache_path = os.path.join(args.root, 'cache', f"{model}-{args.dataset}-strength{args.strength}-guidance{args.guidance_scale}")
     args.model_path = os.path.join(args.root, 'models', model)
     return args
 
 
 def initialize_km_models(args):
-    model = CLARA(n_clusters=args.result_num, random_state=0)
+    model = CLARA(n_clusters=args.result_num, max_iter=500, random_state=0)
     return model
 
 
@@ -93,7 +94,7 @@ def prototype_kmeans(pipe, data_loader, km_model, args):
             batch_images = batch_images.cuda(non_blocking=True)
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", category=FutureWarning)
-                image_embed = pipe(image=batch_images, strength=args.strength, type='image').view(B, -1)
+                image_embed = pipe(image=batch_images, strength=args.strength, type='image').reshape(B, -1)
             for i in range(B):
                 latent_images.append(image_embed[i].view(1, -1).cpu().numpy())
                 latent_indices.append(batch_indices[i])
@@ -102,10 +103,10 @@ def prototype_kmeans(pipe, data_loader, km_model, args):
         with open(index_cache_path, 'wb') as f:
             pickle.dump(latent_indices, f)
 
-    km_model.fit(np.vstack(latent_images))
+    # km_model.fit(np.vstack(latent_images))
     return km_model, latent_images, latent_indices
 
-def gen_prototype(km_models, latent_images, latent_indices):
+def gen_prototype(km_models, latent_images, latent_indices, args):
     prototype = {}
     model = km_models
     N = 64
@@ -119,7 +120,15 @@ def gen_prototype(km_models, latent_images, latent_indices):
             index_centers.append(latent_indices[idx])
         prototype = (image_centers, index_centers)
     else:
-        print(f"Warning: model has no attribute cluster_centers_")
+        medoids_idxs = random.sample(range(len(latent_images)), args.result_num)
+        image_centers = []
+        index_centers = []
+        for idx in medoids_idxs:
+            image_center = latent_images[idx].reshape(4, N, N)
+            image_centers.append(image_center.tolist())
+            index_centers.append(latent_indices[idx])
+        prototype = (image_centers, index_centers)
+        # print(f"Warning: model has no attribute cluster_centers_")
     return prototype
 
 def save_prototype(prototype, args):
@@ -151,7 +160,7 @@ def main():
     fitted_km, latent_images, latent_indices = prototype_kmeans(pipe=pipe, data_loader=trainloader, km_model=km_model, args=args)
 
     # 5.generate prototypes and save them as json file
-    prototype = gen_prototype(fitted_km, latent_images, latent_indices)
+    prototype = gen_prototype(fitted_km, latent_images, latent_indices, args)
     save_prototype(prototype, args)
 
 if __name__ == "__main__" :
